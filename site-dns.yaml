@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description:
+  Template for establishing DNS for static website in serverless lab.
+  DNS is in another template due to problems with rolling back certificates from CloudFront.
+  Certificate and CloudFront templates should be run prior to this.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Website DNS Configuration
+        Parameters:
+          - stage
+          - domain
+          - cdnDomainName
+    ParameterLabels:
+      stage:
+        default: Deployment Stage (eg dev or prod)
+      domain:
+        default: Website Domain Name
+      cdnDomainName:
+        default: CDN Domain Name
+
+Parameters:
+  stage:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    MinLength: 2
+    MaxLength: 8
+    AllowedPattern: ^[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]$
+    ConstraintDescription: 3 to 8 upper case, lower case or dashes, must not start or end with a dash
+
+  domain:
+    Type: String
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: ^[A-Za-z0-9][A-Za-z0-9\-\.]*[A-Za-z0-9]$
+    ConstraintDescription: 3 to 8 upper case, lower case or dashes, must not start or end with a dash
+
+  cdnDomainName:
+    Type: String
+    MinLength: 12
+    MaxLength: 128
+    AllowedPattern: ^[A-Za-z0-9][A-Za-z0-9]*[A-Za-z0-9].cloudfront.net$
+    ConstraintDescription: Domain name ending in '.cloudfront.net'
+
+Conditions: 
+  prodResources: !Equals [ !Ref stage, prod ]
+
+Resources:
+  dnsRecordSet:
+    Type: "AWS::Route53::RecordSetGroup"
+    Properties:
+      HostedZoneName: !Join ["", [!Ref domain, "."]]
+      Comment: "DNS records associated to static site"
+      RecordSets:
+        - Name: !Join ["", [!Ref stage, ".", !Ref domain, "."]]
+          Type: A
+          AliasTarget:
+            DNSName: !Ref cdnDomainName
+            # magic cloudfront hosted zone id
+            # see http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-route53-aliastarget.html
+            HostedZoneId: Z2FDTNDATAQYW2
+        - Name: !Join ["", [!Ref stage, ".", !Ref domain, "."]]
+          # This AAAA record only works for some CloudFront
+          # distributions because IPv6 support isn't rolled out entirely
+          Type: AAAA
+          AliasTarget:
+            DNSName: !Ref cdnDomainName
+            HostedZoneId: Z2FDTNDATAQYW2
+
+  aliasRecordSet:
+    Type: "AWS::Route53::RecordSetGroup"
+    Condition: prodResources
+    Properties:
+      HostedZoneName: !Join ["", [!Ref domain, "."]]
+      Comment: "DNS records associated to static site"
+      RecordSets:
+        - Name: !Join ["", ["www", ".", !Ref domain, "."]]
+          Type: A
+          AliasTarget:
+            DNSName: !Ref cdnDomainName
+            HostedZoneId: Z2FDTNDATAQYW2
+        - Name: !Join ["", ["www", ".", !Ref domain, "."]]
+          # This AAAA record only works for some CloudFront
+          # distributions because IPv6 support isn't rolled out entirely
+          Type: AAAA
+          AliasTarget:
+            DNSName: !Ref cdnDomainName
+            HostedZoneId: Z2FDTNDATAQYW2
+
+Outputs:
+  Stage:
+    Value: !Ref stage
+  Domain:
+    Value: !Ref domain
+    Description: Domain for website
+  CDNDomainName:
+    Value: !Ref cdnDomainName
+    Description: CDN Domain Name  
+  HostedZoneName:
+    Value: !Join ["", [!Ref domain, "."]]
+    Description: DNS Hosted Zone
+  PrimaryRecordSetName:
+    Description: DNS recordset name for website
+    Value: !Join ["", [!Ref stage, ".", !Ref domain, "."]]
+  AliasRecordSetName:
+    Condition: prodResources
+    Description: DNS alias recordset name for website
+    Value: !Join ["", ["www", ".", !Ref domain, "."]]
