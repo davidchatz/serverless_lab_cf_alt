@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description:
+  Template for creating certificates for a domain.
+  The certificate will be created for $stage.$domain, and if the stage is 'prod', for www.$domain as well.
+  Can only be run in us-east-1 if the certificate if to attach to CloudFront or API Gateway.
+  Stack will not complete until email to confirm domain ownership is confirmed.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Website DNS Configuration
+        Parameters:
+          - stage
+          - domain
+    ParameterLabels:
+      stage:
+        default: Deployment Stage (eg dev or prod)
+      domain:
+        default: Website Domain Name
+
+Parameters:
+  stage:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    MinLength: 2
+    MaxLength: 8
+    AllowedPattern: ^[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]$
+    ConstraintDescription: 3 to 8 upper case, lower case or dashes, must not start or end with a dash
+
+  domain:
+    Type: String
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: ^[A-Za-z0-9][A-Za-z0-9\-\.]*[A-Za-z0-9]$
+    ConstraintDescription: 3 to 64 upper case, lower case, dots or dashes, must not start or end with a dot or dash
+
+Conditions: 
+  # Determine if stage is prod
+  prodResources: !Equals [ !Ref stage, prod ]
+  # Ensure we are running in us-east-1 since this will be attached to cloudfront
+  correctRegion: !Equals [ !Ref "AWS::Region", us-east-1 ]
+
+Resources:
+  dnsCertificate:          
+    Type: "AWS::CertificateManager::Certificate"
+    Condition: correctRegion
+    Properties:
+      DomainName: !Join [".", [!Ref stage, !Ref domain]]
+      SubjectAlternativeNames:
+        - !If [prodResources, !Join [".", ["www", !Ref domain]], !Ref "AWS::NoValue"]
+
+Outputs:
+  Stage:
+    Value: !Ref stage
+  Domain:
+    Value: !Ref domain
+  DNS:
+    Value: !Join [".", [!Ref stage, !Ref domain]]
+  AliasDNS:
+    Condition: prodResources
+    Value: !Join [".", ["www", !Ref domain]]
+  Cert:
+    Value: !Ref dnsCertificate
